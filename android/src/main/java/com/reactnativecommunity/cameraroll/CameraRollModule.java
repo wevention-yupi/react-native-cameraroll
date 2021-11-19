@@ -405,35 +405,37 @@ public class CameraRollModule extends ReactContextBaseJavaModule {
 
       WritableMap response = new WritableNativeMap();
       ContentResolver resolver = mContext.getContentResolver();
+      String selectionString = selection.toString();
 
       try {
-        Cursor media = null;
-        String[] selectionArgsArray = selectionArgs.toArray(new String[selectionArgs.size()]);
-        String selectionString = selection.toString();
-        String sortString = Images.Media.DATE_ADDED + " DESC, " + Images.Media.DATE_MODIFIED + " DESC";
-
+        Cursor media;
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-          Bundle selectionBundle = new Bundle();
-          selectionBundle.putInt(ContentResolver.QUERY_ARG_LIMIT, mFirst + 1);
-          selectionBundle.putInt(ContentResolver.QUERY_ARG_OFFSET, 0);
-          selectionBundle.putString(ContentResolver.QUERY_ARG_SQL_SORT_ORDER, sortString);
-          selectionBundle.putString(ContentResolver.QUERY_ARG_SQL_SELECTION, selectionString);
-          selectionBundle.putStringArray(ContentResolver.QUERY_ARG_SQL_SELECTION_ARGS, selectionArgsArray);
-
+          Bundle bundle = new Bundle();
+          bundle.putString(ContentResolver.QUERY_ARG_SQL_SELECTION, selectionString);
+          bundle.putStringArray(ContentResolver.QUERY_ARG_SQL_SELECTION_ARGS,
+                  selectionArgs.toArray(new String[selectionArgs.size()]));
+          bundle.putString(ContentResolver.QUERY_ARG_SQL_SORT_ORDER, Images.Media.DATE_ADDED + " DESC, " + Images.Media.DATE_MODIFIED + " DESC");
+          bundle.putInt(ContentResolver.QUERY_ARG_LIMIT, mFirst + 1);
+          if (!TextUtils.isEmpty(mAfter)) {
+            bundle.putInt(ContentResolver.QUERY_ARG_OFFSET, Integer.parseInt(mAfter));
+          }
           media = resolver.query(
-            MediaStore.Files.getContentUri("external"),
-            PROJECTION,
-            selectionBundle,
-            null
-          );
+                  MediaStore.Files.getContentUri("external"),
+                  PROJECTION,
+                  bundle,
+                  null);
         } else {
+          // set LIMIT to first + 1 so that we know how to populate page_info
+          String limit = "limit=" + (mFirst + 1);
+          if (!TextUtils.isEmpty(mAfter)) {
+            limit = "limit=" + mAfter + "," + (mFirst + 1);
+          }
           media = resolver.query(
-            MediaStore.Files.getContentUri("external"),
-            PROJECTION,
-            selectionString,
-            selectionArgsArray,
-            sortString + " LIMIT " + (mFirst + 1)
-          );
+                  MediaStore.Files.getContentUri("external").buildUpon().encodedQuery(limit).build(),
+                  PROJECTION,
+                  selection.toString(),
+                  selectionArgs.toArray(new String[selectionArgs.size()]),
+                  Images.Media.DATE_ADDED + " DESC, " + Images.Media.DATE_MODIFIED + " DESC");
         }
 
         if (media == null) {
