@@ -413,8 +413,8 @@ public class CameraRollModule extends ReactContextBaseJavaModule {
           bundle.putString(ContentResolver.QUERY_ARG_SQL_SELECTION, selection.toString());
           bundle.putStringArray(ContentResolver.QUERY_ARG_SQL_SELECTION_ARGS,
                   selectionArgs.toArray(new String[selectionArgs.size()]));
-          bundle.putString(ContentResolver.QUERY_ARG_SQL_SORT_ORDER, Images.Media.DATE_ADDED + " ASC, " + Images.Media.DATE_MODIFIED + " ASC");
-          bundle.putInt(ContentResolver.QUERY_ARG_SORT_DIRECTION, ContentResolver.QUERY_SORT_DIRECTION_ASCENDING);
+          bundle.putString(ContentResolver.QUERY_ARG_SQL_SORT_ORDER, Images.Media.DATE_ADDED + " DESC, " + Images.Media.DATE_MODIFIED + " DESC");
+          bundle.putInt(ContentResolver.QUERY_ARG_SORT_DIRECTION, ContentResolver.QUERY_SORT_DIRECTION_DESCENDING);
           if (!TextUtils.isEmpty(mAfter)) {
             bundle.putInt(ContentResolver.QUERY_ARG_OFFSET, Integer.parseInt(mAfter));
           }
@@ -434,7 +434,7 @@ public class CameraRollModule extends ReactContextBaseJavaModule {
                   PROJECTION,
                   selection.toString(),
                   selectionArgs.toArray(new String[selectionArgs.size()]),
-                  Images.Media.DATE_ADDED + " ASC, " + Images.Media.DATE_MODIFIED + " ASC");
+                  Images.Media.DATE_ADDED + " DESC, " + Images.Media.DATE_MODIFIED + " DESC");
         }
 
         if (media == null) {
