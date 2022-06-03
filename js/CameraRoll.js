@@ -201,8 +201,9 @@ class CameraRoll {
         options.type === 'video' ||
         options.type === 'auto' ||
         options.type === undefined,
-      `The second argument to saveToCameraRoll must be 'photo' or 'video' or 'auto'. You passed ${type ||
-        'unknown'}`,
+      `The second argument to saveToCameraRoll must be 'photo' or 'video' or 'auto'. You passed ${
+        type || 'unknown'
+      }`,
     );
     if (type === 'auto') {
       if (['mov', 'mp4'].indexOf(tag.split('.').slice(-1)[0]) >= 0) {
@@ -228,7 +229,6 @@ class CameraRoll {
       albumType: ALBUM_TYPE_OPTIONS.Album,
     },
   ): Promise<Album[]> {
-    console.log('HOLA');
     return RNCCameraRoll.getAlbums(params);
   }
 
