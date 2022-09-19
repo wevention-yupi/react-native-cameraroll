@@ -159,7 +159,7 @@ export type GetAlbumsParams = {
 export type Album = {
   title: string;
   count: number;
-  type: string;
+  type: GroupTypes;
   subType: string;
 };
 
