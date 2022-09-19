@@ -14,7 +14,6 @@ import android.content.Context;
 import android.content.res.AssetFileDescriptor;
 import android.database.Cursor;
 import android.graphics.BitmapFactory;
-import android.media.ExifInterface;
 import android.media.MediaMetadataRetriever;
 import android.media.MediaScannerConnection;
 import android.net.Uri;
@@ -26,6 +25,7 @@ import android.os.FileUtils;
 import android.provider.MediaStore;
 import android.provider.MediaStore.Images;
 import android.text.TextUtils;
+import android.media.ExifInterface;
 
 import com.facebook.common.logging.FLog;
 import com.facebook.react.bridge.GuardedAsyncTask;
@@ -51,10 +51,10 @@ import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.OutputStream;
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.HashMap;
 import java.util.Set;
 
 import javax.annotation.Nullable;
@@ -85,20 +85,19 @@ public class CameraRollModule extends ReactContextBaseJavaModule {
   private static final String INCLUDE_PLAYABLE_DURATION = "playableDuration";
 
   private static final String[] PROJECTION = {
-    Images.Media._ID,
-    Images.Media.MIME_TYPE,
-    Images.Media.BUCKET_DISPLAY_NAME,
-    Images.Media.DATE_TAKEN,
-    MediaStore.MediaColumns.DATE_ADDED,
-    MediaStore.MediaColumns.DATE_MODIFIED,
-    MediaStore.MediaColumns.WIDTH,
-    MediaStore.MediaColumns.HEIGHT,
-    MediaStore.MediaColumns.SIZE,
-    MediaStore.MediaColumns.DATA
+          Images.Media._ID,
+          Images.Media.MIME_TYPE,
+          Images.Media.BUCKET_DISPLAY_NAME,
+          Images.Media.DATE_TAKEN,
+          MediaStore.MediaColumns.DATE_ADDED,
+          MediaStore.MediaColumns.DATE_MODIFIED,
+          MediaStore.MediaColumns.WIDTH,
+          MediaStore.MediaColumns.HEIGHT,
+          MediaStore.MediaColumns.SIZE,
+          MediaStore.MediaColumns.DATA
   };
 
   private static final String SELECTION_BUCKET = Images.Media.BUCKET_DISPLAY_NAME + " = ?";
-  private static final String SELECTION_DATE_TAKEN = Images.Media.DATE_TAKEN + " < ?";
 
   public CameraRollModule(ReactApplicationContext reactContext) {
     super(reactContext);
@@ -114,13 +113,13 @@ public class CameraRollModule extends ReactContextBaseJavaModule {
    * from wherever it may be to the external storage pictures directory, so that it can be scanned
    * by the MediaScanner.
    *
-   * @param uri the file:// URI of the image to save
+   * @param uri     the file:// URI of the image to save
    * @param promise to be resolved or rejected
    */
   @ReactMethod
   public void saveToCameraRoll(String uri, ReadableMap options, Promise promise) {
     new SaveToCameraRoll(getReactApplicationContext(), Uri.parse(uri), options, promise)
-        .executeOnExecutor(AsyncTask.THREAD_POOL_EXECUTOR);
+            .executeOnExecutor(AsyncTask.THREAD_POOL_EXECUTOR);
   }
 
   private static class SaveToCameraRoll extends GuardedAsyncTask<Void, Void> {
@@ -143,25 +142,26 @@ public class CameraRollModule extends ReactContextBaseJavaModule {
       File source = new File(mUri.getPath());
       FileInputStream input = null;
       OutputStream output = null;
+
+      String mimeType = Utils.getMimeType(mUri.getPath());
+
       try {
         String album = mOptions.getString("album");
         boolean isAlbumPresent = !TextUtils.isEmpty(album);
 
         // Android Q and above
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-          Uri mediaCollection = MediaStore.Files.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY);
           ContentValues mediaDetails = new ContentValues();
           if (isAlbumPresent) {
-            // Notes: I got this error when using Environment.DIRECTORY_MOVIES
-            // Primary directory Movies not allowed for content://media/external_primary/file; allowed directories are [Download, Documents]
-            String relativePath = Environment.DIRECTORY_DOCUMENTS + File.separator + album;
-            mediaDetails.put(Images.Media.RELATIVE_PATH, relativePath);
+            String relativePath = Environment.DIRECTORY_DCIM + File.separator + album;
+            mediaDetails.put(MediaStore.MediaColumns.RELATIVE_PATH, relativePath);
           }
+          mediaDetails.put(MediaStore.MediaColumns.MIME_TYPE, mimeType);
           mediaDetails.put(Images.Media.DISPLAY_NAME, source.getName());
           mediaDetails.put(Images.Media.IS_PENDING, 1);
           ContentResolver resolver = mContext.getContentResolver();
           Uri mediaContentUri = resolver
-                  .insert(mediaCollection, mediaDetails);
+                  .insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, mediaDetails);
           output = resolver.openOutputStream(mediaContentUri);
           input = new FileInputStream(source);
           FileUtils.copy(input, output);
@@ -196,6 +196,7 @@ public class CameraRollModule extends ReactContextBaseJavaModule {
             mPromise.reject(ERROR_UNABLE_TO_LOAD, "External media storage directory not available");
             return;
           }
+
           File dest = new File(exportDir, source.getName());
           int n = 0;
           String fullSourceName = source.getName();
@@ -221,14 +222,11 @@ public class CameraRollModule extends ReactContextBaseJavaModule {
                   mContext,
                   new String[]{dest.getAbsolutePath()},
                   null,
-                  new MediaScannerConnection.OnScanCompletedListener() {
-                    @Override
-                    public void onScanCompleted(String path, Uri uri) {
-                      if (uri != null) {
-                        mPromise.resolve(uri.toString());
-                      } else {
-                        mPromise.reject(ERROR_UNABLE_TO_SAVE, "Could not add image to gallery");
-                      }
+                  (path, uri) -> {
+                    if (uri != null) {
+                      mPromise.resolve(uri.toString());
+                    } else {
+                      mPromise.reject(ERROR_UNABLE_TO_SAVE, "Could not add image to gallery");
                     }
                   });
         }
@@ -256,25 +254,25 @@ public class CameraRollModule extends ReactContextBaseJavaModule {
   /**
    * Get photos from {@link MediaStore.Images}, most recent first.
    *
-   * @param params a map containing the following keys:
-   *        <ul>
-   *          <li>first (mandatory): a number representing the number of photos to fetch</li>
-   *          <li>
-   *            after (optional): a cursor that matches page_info[end_cursor] returned by a
-   *            previous call to {@link #getPhotos}
-   *          </li>
-   *          <li>groupName (optional): an album name</li>
-   *          <li>
-   *            mimeType (optional): restrict returned images to a specific mimetype (e.g.
-   *            image/jpeg)
-   *          </li>
-   *          <li>
-   *            assetType (optional): chooses between either photos or videos from the camera roll.
-   *            Valid values are "Photos" or "Videos". Defaults to photos.
-   *          </li>
-   *        </ul>
+   * @param params  a map containing the following keys:
+   *                <ul>
+   *                  <li>first (mandatory): a number representing the number of photos to fetch</li>
+   *                  <li>
+   *                    after (optional): a cursor that matches page_info[end_cursor] returned by a
+   *                    previous call to {@link #getPhotos}
+   *                  </li>
+   *                  <li>groupName (optional): an album name</li>
+   *                  <li>
+   *                    mimeType (optional): restrict returned images to a specific mimetype (e.g.
+   *                    image/jpeg)
+   *                  </li>
+   *                  <li>
+   *                    assetType (optional): chooses between either photos or videos from the camera roll.
+   *                    Valid values are "Photos" or "Videos". Defaults to photos.
+   *                  </li>
+   *                </ul>
    * @param promise the Promise to be resolved when the photos are loaded; for a format of the
-   *        parameters passed to this callback, see {@code getPhotosReturnChecker} in CameraRoll.js
+   *                parameters passed to this callback, see {@code getPhotosReturnChecker} in CameraRoll.js
    */
   @ReactMethod
   public void getPhotos(final ReadableMap params, final Promise promise) {
@@ -285,30 +283,33 @@ public class CameraRollModule extends ReactContextBaseJavaModule {
     long fromTime = params.hasKey("fromTime") ? (long) params.getDouble("fromTime") : 0;
     long toTime = params.hasKey("toTime") ? (long) params.getDouble("toTime") : 0;
     ReadableArray mimeTypes = params.hasKey("mimeTypes")
-        ? params.getArray("mimeTypes")
-        : null;
+            ? params.getArray("mimeTypes")
+            : null;
     ReadableArray include = params.hasKey("include") ? params.getArray("include") : null;
 
     new GetMediaTask(
-          getReactApplicationContext(),
-          first,
-          after,
-          groupName,
-          mimeTypes,
-          assetType,
-          fromTime,
-          toTime,
-          include,
-          promise)
-          .executeOnExecutor(AsyncTask.THREAD_POOL_EXECUTOR);
+            getReactApplicationContext(),
+            first,
+            after,
+            groupName,
+            mimeTypes,
+            assetType,
+            fromTime,
+            toTime,
+            include,
+            promise)
+            .executeOnExecutor(AsyncTask.THREAD_POOL_EXECUTOR);
   }
 
   private static class GetMediaTask extends GuardedAsyncTask<Void, Void> {
     private final Context mContext;
     private final int mFirst;
-    private final @Nullable String mAfter;
-    private final @Nullable String mGroupName;
-    private final @Nullable ReadableArray mMimeTypes;
+    private final @Nullable
+    String mAfter;
+    private final @Nullable
+    String mGroupName;
+    private final @Nullable
+    ReadableArray mMimeTypes;
     private final Promise mPromise;
     private final String mAssetType;
     private final long mFromTime;
@@ -316,16 +317,16 @@ public class CameraRollModule extends ReactContextBaseJavaModule {
     private final Set<String> mInclude;
 
     private GetMediaTask(
-        ReactContext context,
-        int first,
-        @Nullable String after,
-        @Nullable String groupName,
-        @Nullable ReadableArray mimeTypes,
-        String assetType,
-        long fromTime,
-        long toTime,
-        @Nullable ReadableArray include,
-        Promise promise) {
+            ReactContext context,
+            int first,
+            @Nullable String after,
+            @Nullable String groupName,
+            @Nullable ReadableArray mimeTypes,
+            String assetType,
+            long fromTime,
+            long toTime,
+            @Nullable ReadableArray include,
+            Promise promise) {
       super(context);
       mContext = context;
       mFirst = first;
@@ -367,19 +368,19 @@ public class CameraRollModule extends ReactContextBaseJavaModule {
 
       if (mAssetType.equals(ASSET_TYPE_PHOTOS)) {
         selection.append(" AND " + MediaStore.Files.FileColumns.MEDIA_TYPE + " = "
-          + MediaStore.Files.FileColumns.MEDIA_TYPE_IMAGE);
+                + MediaStore.Files.FileColumns.MEDIA_TYPE_IMAGE);
       } else if (mAssetType.equals(ASSET_TYPE_VIDEOS)) {
         selection.append(" AND " + MediaStore.Files.FileColumns.MEDIA_TYPE + " = "
-          + MediaStore.Files.FileColumns.MEDIA_TYPE_VIDEO);
+                + MediaStore.Files.FileColumns.MEDIA_TYPE_VIDEO);
       } else if (mAssetType.equals(ASSET_TYPE_ALL)) {
         selection.append(" AND " + MediaStore.Files.FileColumns.MEDIA_TYPE + " IN ("
-          + MediaStore.Files.FileColumns.MEDIA_TYPE_VIDEO + ","
-          + MediaStore.Files.FileColumns.MEDIA_TYPE_IMAGE + ")");
+                + MediaStore.Files.FileColumns.MEDIA_TYPE_VIDEO + ","
+                + MediaStore.Files.FileColumns.MEDIA_TYPE_IMAGE + ")");
       } else {
         mPromise.reject(
-          ERROR_UNABLE_TO_FILTER,
-          "Invalid filter option: '" + mAssetType + "'. Expected one of '"
-            + ASSET_TYPE_PHOTOS + "', '" + ASSET_TYPE_VIDEOS + "' or '" + ASSET_TYPE_ALL + "'."
+                ERROR_UNABLE_TO_FILTER,
+                "Invalid filter option: '" + mAssetType + "'. Expected one of '"
+                        + ASSET_TYPE_PHOTOS + "', '" + ASSET_TYPE_VIDEOS + "' or '" + ASSET_TYPE_ALL + "'."
         );
         return;
       }
@@ -405,13 +406,12 @@ public class CameraRollModule extends ReactContextBaseJavaModule {
 
       WritableMap response = new WritableNativeMap();
       ContentResolver resolver = mContext.getContentResolver();
-      String selectionString = selection.toString();
 
       try {
         Cursor media;
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
           Bundle bundle = new Bundle();
-          bundle.putString(ContentResolver.QUERY_ARG_SQL_SELECTION, selectionString);
+          bundle.putString(ContentResolver.QUERY_ARG_SQL_SELECTION, selection.toString());
           bundle.putStringArray(ContentResolver.QUERY_ARG_SQL_SELECTION_ARGS,
                   selectionArgs.toArray(new String[selectionArgs.size()]));
           bundle.putString(ContentResolver.QUERY_ARG_SQL_SORT_ORDER, Images.Media.DATE_ADDED + " DESC, " + Images.Media.DATE_MODIFIED + " DESC");
@@ -451,9 +451,9 @@ public class CameraRollModule extends ReactContextBaseJavaModule {
         }
       } catch (SecurityException e) {
         mPromise.reject(
-            ERROR_UNABLE_TO_LOAD_PERMISSION,
-            "Could not get media: need READ_EXTERNAL_STORAGE permission",
-            e);
+                ERROR_UNABLE_TO_LOAD_PERMISSION,
+                "Could not get media: need READ_EXTERNAL_STORAGE permission",
+                e);
       }
     }
   }
@@ -499,7 +499,11 @@ public class CameraRollModule extends ReactContextBaseJavaModule {
           if (media.moveToFirst()) {
             Map<String, Integer> albums = new HashMap<>();
             do {
-              String albumName = media.getString(media.getColumnIndex(MediaStore.Images.ImageColumns.BUCKET_DISPLAY_NAME));
+              int column = media.getColumnIndex(MediaStore.Images.ImageColumns.BUCKET_DISPLAY_NAME);
+              if (column < 0) {
+                throw new IndexOutOfBoundsException();
+              }
+              String albumName = media.getString(column);
               if (albumName != null) {
                 Integer albumCount = albums.get(albumName);
                 if (albumCount == null) {
@@ -532,19 +536,19 @@ public class CameraRollModule extends ReactContextBaseJavaModule {
     pageInfo.putBoolean("has_next_page", limit < media.getCount());
     if (limit < media.getCount()) {
       pageInfo.putString(
-        "end_cursor",
-        Integer.toString(offset + limit)
+              "end_cursor",
+              Integer.toString(offset + limit)
       );
     }
     response.putMap("page_info", pageInfo);
   }
 
   private static void putEdges(
-      ContentResolver resolver,
-      Cursor media,
-      WritableMap response,
-      int limit,
-      Set<String> include) {
+          ContentResolver resolver,
+          Cursor media,
+          WritableMap response,
+          int limit,
+          Set<String> include) {
     WritableArray edges = new WritableNativeArray();
     media.moveToFirst();
     int mimeTypeIndex = media.getColumnIndex(Images.Media.MIME_TYPE);
@@ -567,9 +571,9 @@ public class CameraRollModule extends ReactContextBaseJavaModule {
       WritableMap edge = new WritableNativeMap();
       WritableMap node = new WritableNativeMap();
       boolean imageInfoSuccess =
-          putImageInfo(resolver, media, node, widthIndex, heightIndex, sizeIndex, dataIndex,
-              mimeTypeIndex, includeFilename, includeFileSize, includeImageSize,
-              includePlayableDuration);
+              putImageInfo(resolver, media, node, widthIndex, heightIndex, sizeIndex, dataIndex,
+                      mimeTypeIndex, includeFilename, includeFileSize, includeImageSize,
+                      includePlayableDuration);
       if (imageInfoSuccess) {
         putBasicNodeInfo(media, node, mimeTypeIndex, groupNameIndex, dateTakenIndex, dateAddedIndex, dateModifiedIndex);
         putLocationInfo(media, node, dataIndex, includeLocation);
@@ -587,19 +591,19 @@ public class CameraRollModule extends ReactContextBaseJavaModule {
   }
 
   private static void putBasicNodeInfo(
-      Cursor media,
-      WritableMap node,
-      int mimeTypeIndex,
-      int groupNameIndex,
-      int dateTakenIndex,
-      int dateAddedIndex,
-      int dateModifiedIndex) {
+          Cursor media,
+          WritableMap node,
+          int mimeTypeIndex,
+          int groupNameIndex,
+          int dateTakenIndex,
+          int dateAddedIndex,
+          int dateModifiedIndex) {
     node.putString("type", media.getString(mimeTypeIndex));
     node.putString("group_name", media.getString(groupNameIndex));
     long dateTaken = media.getLong(dateTakenIndex);
     if (dateTaken == 0L) {
-        //date added is in seconds, date taken in milliseconds, thus the multiplication
-        dateTaken = media.getLong(dateAddedIndex) * 1000;
+      //date added is in seconds, date taken in milliseconds, thus the multiplication
+      dateTaken = media.getLong(dateAddedIndex) * 1000;
     }
     node.putDouble("timestamp", dateTaken / 1000d);
     node.putDouble("modified", media.getLong(dateModifiedIndex));
@@ -610,18 +614,18 @@ public class CameraRollModule extends ReactContextBaseJavaModule {
    * to include
    */
   private static boolean putImageInfo(
-      ContentResolver resolver,
-      Cursor media,
-      WritableMap node,
-      int widthIndex,
-      int heightIndex,
-      int sizeIndex,
-      int dataIndex,
-      int mimeTypeIndex,
-      boolean includeFilename,
-      boolean includeFileSize,
-      boolean includeImageSize,
-      boolean includePlayableDuration) {
+          ContentResolver resolver,
+          Cursor media,
+          WritableMap node,
+          int widthIndex,
+          int heightIndex,
+          int sizeIndex,
+          int dataIndex,
+          int mimeTypeIndex,
+          boolean includeFilename,
+          boolean includeFileSize,
+          boolean includeImageSize,
+          boolean includePlayableDuration) {
     WritableMap image = new WritableNativeMap();
     Uri photoUri = Uri.parse("file://" + media.getString(dataIndex));
     image.putString("uri", photoUri.toString());
@@ -629,9 +633,9 @@ public class CameraRollModule extends ReactContextBaseJavaModule {
 
     boolean isVideo = mimeType != null && mimeType.startsWith("video");
     boolean putImageSizeSuccess = putImageSize(resolver, media, image, widthIndex, heightIndex,
-        photoUri, isVideo, includeImageSize);
+            photoUri, isVideo, includeImageSize);
     boolean putPlayableDurationSuccess = putPlayableDuration(resolver, image, photoUri, isVideo,
-        includePlayableDuration);
+            includePlayableDuration);
 
     if (includeFilename) {
       File file = new File(media.getString(dataIndex));
@@ -655,11 +659,11 @@ public class CameraRollModule extends ReactContextBaseJavaModule {
    * @return Whether we succeeded in fetching and putting the playableDuration
    */
   private static boolean putPlayableDuration(
-      ContentResolver resolver,
-      WritableMap image,
-      Uri photoUri,
-      boolean isVideo,
-      boolean includePlayableDuration) {
+          ContentResolver resolver,
+          WritableMap image,
+          Uri photoUri,
+          boolean isVideo,
+          boolean includePlayableDuration) {
     image.putNull("playableDuration");
 
     if (!includePlayableDuration || !isVideo) {
@@ -684,19 +688,21 @@ public class CameraRollModule extends ReactContextBaseJavaModule {
         // Do nothing. We can't handle this, and this is usually a system problem
       }
       try {
-        int timeInMillisec =
-            Integer.parseInt(
-                retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION));
-        playableDuration = timeInMillisec / 1000;
+        int timeInMillisecond = Integer.parseInt(retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION));
+        playableDuration = timeInMillisecond / 1000;
       } catch (NumberFormatException e) {
         success = false;
         FLog.e(
-            ReactConstants.TAG,
-            "Number format exception occurred while trying to fetch video metadata for "
-                + photoUri.toString(),
-            e);
+                ReactConstants.TAG,
+                "Number format exception occurred while trying to fetch video metadata for "
+                        + photoUri.toString(),
+                e);
       }
-      retriever.release();
+      try {
+        retriever.release();
+      } catch (Exception e) { // Use general Exception here, see: https://developer.android.com/reference/android/media/MediaMetadataRetriever#release()
+        // Do nothing. We can't handle this, and this is usually a system problem
+      }
     }
 
     if (photoDescriptor != null) {
@@ -715,14 +721,14 @@ public class CameraRollModule extends ReactContextBaseJavaModule {
   }
 
   private static boolean putImageSize(
-      ContentResolver resolver,
-      Cursor media,
-      WritableMap image,
-      int widthIndex,
-      int heightIndex,
-      Uri photoUri,
-      boolean isVideo,
-      boolean includeImageSize) {
+          ContentResolver resolver,
+          Cursor media,
+          WritableMap image,
+          int widthIndex,
+          int heightIndex,
+          Uri photoUri,
+          boolean isVideo,
+          boolean includeImageSize) {
     image.putNull("width");
     image.putNull("height");
 
@@ -731,56 +737,61 @@ public class CameraRollModule extends ReactContextBaseJavaModule {
     }
 
     boolean success = true;
+
     int width = media.getInt(widthIndex);
     int height = media.getInt(heightIndex);
 
+    /* If the columns don't contain the size information, read the media file */
     if (width <= 0 || height <= 0) {
-      @Nullable AssetFileDescriptor photoDescriptor = null;
+      @Nullable AssetFileDescriptor mediaDescriptor = null;
       try {
-        photoDescriptor = resolver.openAssetFileDescriptor(photoUri, "r");
+        mediaDescriptor = resolver.openAssetFileDescriptor(photoUri, "r");
       } catch (FileNotFoundException e) {
         success = false;
         FLog.e(ReactConstants.TAG, "Could not open asset file " + photoUri.toString(), e);
       }
-
-      if (photoDescriptor != null) {
+      if (mediaDescriptor != null) {
         if (isVideo) {
           MediaMetadataRetriever retriever = new MediaMetadataRetriever();
           try {
-            retriever.setDataSource(photoDescriptor.getFileDescriptor());
+            retriever.setDataSource(mediaDescriptor.getFileDescriptor());
           } catch (RuntimeException e) {
             // Do nothing. We can't handle this, and this is usually a system problem
           }
           try {
-            width =
-                Integer.parseInt(
-                    retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_WIDTH));
-            height =
-                Integer.parseInt(
-                    retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_HEIGHT));
+            width = Integer.parseInt(retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_WIDTH));
+            height = Integer.parseInt(retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_HEIGHT));
           } catch (NumberFormatException e) {
             success = false;
             FLog.e(
-                ReactConstants.TAG,
-                "Number format exception occurred while trying to fetch video metadata for "
-                    + photoUri.toString(),
-                e);
+                    ReactConstants.TAG,
+                    "Number format exception occurred while trying to fetch video metadata for "
+                            + photoUri.toString(),
+                    e);
           }
-          retriever.release();
+          try {
+            retriever.release();
+          } catch (Exception e) { // Use general Exception here, see: https://developer.android.com/reference/android/media/MediaMetadataRetriever#release()
+            // Do nothing. We can't handle this, and this is usually a system problem
+          }
         } else {
           BitmapFactory.Options options = new BitmapFactory.Options();
           // Set inJustDecodeBounds to true so we don't actually load the Bitmap, but only get its
           // dimensions instead.
           options.inJustDecodeBounds = true;
-          BitmapFactory.decodeFileDescriptor(photoDescriptor.getFileDescriptor(), null, options);
+          BitmapFactory.decodeFileDescriptor(mediaDescriptor.getFileDescriptor(), null, options);
           width = options.outWidth;
           height = options.outHeight;
         }
 
         try {
-          photoDescriptor.close();
+          mediaDescriptor.close();
         } catch (IOException e) {
-          // Do nothing. We can't handle this, and this is usually a system problem
+          FLog.e(
+                  ReactConstants.TAG,
+                  "Can't close media descriptor "
+                          + photoUri.toString(),
+                  e);
         }
       }
 
@@ -792,40 +803,40 @@ public class CameraRollModule extends ReactContextBaseJavaModule {
   }
 
   private static void putLocationInfo(
-      Cursor media,
-      WritableMap node,
-      int dataIndex,
-      boolean includeLocation) {
+          Cursor media,
+          WritableMap node,
+          int dataIndex,
+          boolean includeLocation) {
     node.putNull("location");
 
     if (!includeLocation) {
       return;
     }
 
-      try {
-        // location details are no longer indexed for privacy reasons using string Media.LATITUDE, Media.LONGITUDE
-        // we manually obtain location metadata using ExifInterface#getLatLong(float[]).
-        // ExifInterface is added in API level 5
-        final ExifInterface exif = new ExifInterface(media.getString(dataIndex));
-        float[] imageCoordinates = new float[2];
-        boolean hasCoordinates = exif.getLatLong(imageCoordinates);
-        if (hasCoordinates) {
-          double longitude = imageCoordinates[1];
-          double latitude = imageCoordinates[0];
-          WritableMap location = new WritableNativeMap();
-          location.putDouble("longitude", longitude);
-          location.putDouble("latitude", latitude);
-          node.putMap("location", location);
-        }
-      } catch (IOException e) {
-        FLog.e(ReactConstants.TAG, "Could not read the metadata", e);
+    try {
+      // location details are no longer indexed for privacy reasons using string Media.LATITUDE, Media.LONGITUDE
+      // we manually obtain location metadata using ExifInterface#getLatLong(float[]).
+      // ExifInterface is added in API level 5
+      final ExifInterface exif = new ExifInterface(media.getString(dataIndex));
+      float[] imageCoordinates = new float[2];
+      boolean hasCoordinates = exif.getLatLong(imageCoordinates);
+      if (hasCoordinates) {
+        double longitude = imageCoordinates[1];
+        double latitude = imageCoordinates[0];
+        WritableMap location = new WritableNativeMap();
+        location.putDouble("longitude", longitude);
+        location.putDouble("latitude", latitude);
+        node.putMap("location", location);
       }
+    } catch (IOException e) {
+      FLog.e(ReactConstants.TAG, "Could not read the metadata", e);
+    }
   }
 
   /**
    * Delete a set of images.
    *
-   * @param uris array of file:// URIs of the images to delete
+   * @param uris    array of file:// URIs of the images to delete
    * @param promise to be resolved
    */
   @ReactMethod
@@ -834,7 +845,7 @@ public class CameraRollModule extends ReactContextBaseJavaModule {
       promise.reject(ERROR_UNABLE_TO_DELETE, "Need at least one URI to delete");
     } else {
       new DeletePhotos(getReactApplicationContext(), uris, promise)
-          .executeOnExecutor(AsyncTask.THREAD_POOL_EXECUTOR);
+              .executeOnExecutor(AsyncTask.THREAD_POOL_EXECUTOR);
     }
   }
 
@@ -856,7 +867,7 @@ public class CameraRollModule extends ReactContextBaseJavaModule {
       ContentResolver resolver = mContext.getContentResolver();
 
       // Set up the projection (we only need the ID)
-      String[] projection = { MediaStore.Images.Media._ID };
+      String[] projection = {MediaStore.Images.Media._ID};
 
       // Match on the file path
       String innerWhere = "?";
@@ -892,7 +903,7 @@ public class CameraRollModule extends ReactContextBaseJavaModule {
         mPromise.resolve(true);
       } else {
         mPromise.reject(ERROR_UNABLE_TO_DELETE,
-            "Could not delete all media, only deleted " + deletedCount + " photos.");
+                "Could not delete all media, only deleted " + deletedCount + " photos.");
       }
     }
   }
