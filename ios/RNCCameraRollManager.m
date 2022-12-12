@@ -242,8 +242,8 @@ RCT_EXPORT_METHOD(getAlbums:(NSDictionary *)params
           @"title": [obj localizedTitle],
           @"count": @(assetsFetchResult.count),
           @"type": fetchedAlbumType,
-          @"subType": @(obj.assetCollectionSubtype)
-          @"preview": uri
+          @"subType": @(obj.assetCollectionSubtype),
+          @"preview": uri,
         }];
       }
     };
