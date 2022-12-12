@@ -161,6 +161,7 @@ export type Album = {
   count: number;
   type: GroupTypes;
   subType: string;
+  preview?: string;
 };
 
 /**
