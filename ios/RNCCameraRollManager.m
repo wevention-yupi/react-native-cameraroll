@@ -237,11 +237,13 @@ RCT_EXPORT_METHOD(getAlbums:(NSDictionary *)params
       // Enumerate assets within the collection
       PHFetchResult<PHAsset *> *const assetsFetchResult = [PHAsset fetchAssetsInAssetCollection:obj options:assetFetchOptions];
       if (assetsFetchResult.count > 0) {
+        NSString *const uri = [NSString stringWithFormat:@"ph://%@", [assetsFetchResult.lastObject localIdentifier]];
         [result addObject:@{
           @"title": [obj localizedTitle],
           @"count": @(assetsFetchResult.count),
           @"type": fetchedAlbumType,
           @"subType": @(obj.assetCollectionSubtype)
+          @"preview": uri
         }];
       }
     };
@@ -312,6 +314,7 @@ RCT_EXPORT_METHOD(getPhotos:(NSDictionary *)params
   
   // Predicate for fetching assets within a collection
   PHFetchOptions *const assetFetchOptions = [RCTConvert PHFetchOptionsFromMediaType:mediaType fromTime:fromTime toTime:toTime];
+  assetFetchOptions.sortDescriptors = @[[NSSortDescriptor sortDescriptorWithKey:@"creationDate" ascending: NO]];
   // We can directly set the limit if we guarantee every image fetched will be
   // added to the output array within the `collectAsset` block
   BOOL collectAssetMayOmitAsset = !!afterCursor || [mimeTypes count] > 0;
